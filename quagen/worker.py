@@ -5,6 +5,7 @@ import time
 from quagen import config
 from quagen import queries
 from quagen.ai.biased import BiasedAI
+from quagen.ai.previous import PreviousAI
 
 class Worker:
 
@@ -39,7 +40,11 @@ class Worker:
                 ai_strength = game.settings['ai_strength']
                 print(f'Taking turn for AI { ai_id } with strength { ai_strength }') 
             
-                ai_method = BiasedAI(game, (i + 1), ai_strength)
+                if i % 2 == 0:
+                    ai_method = BiasedAI(game, (i + 1), ai_strength)
+                else: 
+                    ai_method = PreviousAI(game, (i + 1), ai_strength)
+
                 ai_x, ai_y = ai_method.choose_move()
 
                 game.add_move(ai_id, ai_x, ai_y)

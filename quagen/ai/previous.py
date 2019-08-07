@@ -2,11 +2,10 @@ from copy import deepcopy
 import itertools
 import random
 
-from quagen.game import Board 
 from quagen.ai import AI
 from quagen.utils import chunk_list
 
-class BiasedAI(AI):
+class PreviousAI(AI):
     '''
     Selects X candidate spots and chooses the spot with the highest 
     weighted score. X is determined by the strength of the AI. While this AI 
@@ -27,15 +26,15 @@ class BiasedAI(AI):
     '''(int) Number of turns to look back on for previous moves'''
     LOOKBACK_TURNS = 3
 
-    '''(int) Space range variance for opening move'''
-    OPENING_VARIANCE = 1
+    '''(int) Space range away from the center for opening move'''
+    OPENING_RADIUS = 3
 
     def get_max_strength(self):
         '''
         Returns:
             (int) The max strength / level of this AI
         '''
-        return len(BiasedAI.DISTRIBUTED_CANDIDATE_COUNT) - 1
+        return len(PreviousAI.DISTRIBUTED_CANDIDATE_COUNT) - 1
 
     def choose_move(self):
         '''
@@ -55,26 +54,23 @@ class BiasedAI(AI):
         choosen_spot = None
 
         if 0 == self._game.turn_completed:
-            # At the start of the game, we will choose a cornerish spot 
-            # equidistance from the corner and center. Add a bit of variance 
-            # to not be completely predictable.
-            dimension_x = self._game.settings['dimension_x']
-            offset_x = int(dimension_x / 3)
-            variance_x = random.randint(-BiasedAI.OPENING_VARIANCE, BiasedAI.OPENING_VARIANCE) 
-            pick_x = random.choice([offset_x, dimension_x - offset_x]) + variance_x
+            # At the start of the game, we will choose a random spot towards 
+            # the middle of the board
+            center_x = int(self._game.settings['dimension_x'] / 2)
+            pick_x = random.randint(center_x - PreviousAI.OPENING_RADIUS
+                                  , center_x + PreviousAI.OPENING_RADIUS)
 
-            dimension_y = self._game.settings['dimension_y']
-            offset_y = int(dimension_y / 3)
-            variance_y = random.randint(-BiasedAI.OPENING_VARIANCE, BiasedAI.OPENING_VARIANCE)            
-            pick_y = random.choice([offset_y, dimension_y - offset_y]) + variance_y
+            center_y = int(self._game.settings['dimension_y'] / 2)
+            pick_y = random.randint(center_y - PreviousAI.OPENING_RADIUS
+                                  , center_y + PreviousAI.OPENING_RADIUS)
 
             choosen_spot = (pick_x, pick_y)
         else:
             # Let's look at spots which are around opponents' recent moves. 
             # Countering an opponent's move typically has a high projection 
             # depending on the board state and stage of the game.
-            lookback_count = BiasedAI.LOOKBACK_CANDIDATE_COUNT[self._strength]
-            lookback_turns = BiasedAI.LOOKBACK_TURNS
+            lookback_count = PreviousAI.LOOKBACK_CANDIDATE_COUNT[self._strength]
+            lookback_turns = PreviousAI.LOOKBACK_TURNS
             lookback_spots = self._get_lookback_candidates(
                                     available_spots, 
                                     lookback_count,
@@ -88,7 +84,7 @@ class BiasedAI(AI):
             # equally from each chunk. This lets the AI project spots 
             # distributed all over the board without having to look at 
             # every spot on the board.
-            distributed_count = BiasedAI.DISTRIBUTED_CANDIDATE_COUNT[self._strength]
+            distributed_count = PreviousAI.DISTRIBUTED_CANDIDATE_COUNT[self._strength]
             distrubted_spots = self._get_distributed_candidates(available_spots, distributed_count)
 
             candidate_spots += distrubted_spots
@@ -220,8 +216,7 @@ class BiasedAI(AI):
             'coords': spot, 
             'projected': new_projected,
             'gain_ai': new_projected - cur_projected,
-            'gain_opponents': self._calculate_opponent_gain(spot),
-            'uncontested_radius': self._calcluate_uncontested_radius(spot)
+            'gain_opponents': self._calculate_opponent_gain(spot)
         }
              
         return augmented_candidate
@@ -245,11 +240,7 @@ class BiasedAI(AI):
             # the opponent to perhaps play defense if the gains for the 
             # opponent on a spot are enough to outweight our gains.
             if self._game.is_leading(self._color, 'projected'):
-                score += spot['gain_opponents'] * .26
-
-            # Boost spots which have have a lot of uncontested territory 
-            # around the spot
-            score += pow(3, spot['uncontested_radius'])
+                score += spot['gain_opponents'] * .34
 
             spot['score'] = score
 
@@ -283,35 +274,3 @@ class BiasedAI(AI):
 
         gain = gain / (player_count - 1)
         return gain
-
-    def _calcluate_uncontested_radius(self, spot):
-        '''
-        Calculates the completely untouched territory (e.g. no player in 
-        control or net pressuring) around the passed spot. 
-        
-        Args:
-            spot: (x, y) spot to evalulate
-        
-        Returns:
-            (int) Radius of untouched territory around the passed spot
-        '''
-        radius = -1
-        board = self._game.board
-        spots = self._game.board.spots
-
-        clear = True
-        while clear:
-            radius += 1
-
-            for adj_x in (-radius, radius + 1):  
-                for adj_y in (-radius, radius + 1):
-                    if abs(adj_x) >= radius or abs(adj_y) >= radius:
-                        x = spot[0] + adj_x
-                        y = spot[1] + adj_y
-                        if (not board.validate_move(x, y) or 
-                            Board.COLOR_NO_PLAYER != spots[x][y]['color']):
-                            # We encountered an occupied, pressured, or off 
-                            # the board spot
-                            clear = False
-
-        return radius
